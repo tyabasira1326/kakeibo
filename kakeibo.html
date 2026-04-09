@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="家計管理" />
+  <title>家計管理</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0F1117; font-family: 'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif; }
+    input, select, button { font-family: inherit; }
+    input[type=number]::-webkit-inner-spin-button,
+    input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
+    div::-webkit-scrollbar { display: none; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+function load(key, def) {
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def; }
+  catch { return def; }
+}
+function save(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
+
+function today() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+function monthLabel(ym) {
+  const [y,m] = ym.split("-");
+  return `${y}年${parseInt(m)}月`;
+}
+function currentYM() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+}
+function tateCycleKey(dateStr) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  if (d <= 15) {
+    return `${y}-${String(m).padStart(2,"0")}`;
+  } else {
+    const next = new Date(y, m, 1);
+    return `${next.getFullYear()}-${String(next.getMonth()+1).padStart(2,"0")}`;
+  }
+}
+function tateCycleLabel(cycleKey) {
+  const [y, m] = cycleKey.split("-").map(Number);
+  const prev = new Date(y, m - 2, 1);
+  const prevY = prev.getFullYear();
+  const prevM = prev.getMonth() + 1;
+  return `${prevY}/${prevM}/16 〜 ${y}/${m}/15`;
+}
+
+const MEMO_OPTIONS = ["借りた","返した","ごはん","買い物","こづかい","借り繰り越し","今月借り","家計に移動"];
+
+const C = {
+  bg: "#0F1117", surface: "#1A1D27", card: "#22263A",
+  accent: "#4ECDC4", accent2: "#FF6B6B", accent3: "#FFE66D",
+  text: "#F0F4FF", muted: "#6B7299", border: "#2A2E45",
+};
+
+function Reel({ items, value, onChange, width = 72, itemHeight = 44 }) {
+  const listRef = useRef(null);
+  const snapTimer = useRef(null);
+  const idx = items.findIndex(i => String(i.value) === String(value));
+  const current = idx < 0 ? 0 : idx;
+
+  useEffect(() => {
+    if (listRef.current) {
+      listRef.current.scrollTop = current * itemHeight;
+    }
+  }, []);
+
+  const handleScroll = () => {
+    if (snapTimer.current) clearTimeout(snapTimer.current);
+    snapTimer.current = setTimeout(() => {
+      if (!listRef.current) return;
+      const newIdx = Math.round(listRef.current.scrollTop / itemHeight);
+      const clamped = Math.max(0, Math.min(newIdx, items.length - 1));
+      listRef.current.scrollTop = clamped * itemHeight;
+      onChange(items[clamped].value);
+    }, 80);
+  };
+
+  return (
+    <div style={{ width, height: itemHeight * 3, position:"relative", overflow:"hidden", borderRadius:12, background:"#1A1D27", border:"1px solid #2A2E45", flexShrink:0 }}>
+      <div style={{ position:"absolute", top:itemHeight, left:0, right:0, height:itemHeight, background:"rgba(78,205,196,0.12)", borderTop:"1px solid rgba(78,205,196,0.35)", borderBottom:"1px solid rgba(78,205,196,0.35)", pointerEvents:"none", zIndex:2 }} />
+      <div style={{ position:"absolute", top:0, left:0, right:0, height:itemHeight, background:"linear-gradient(to bottom, #1A1D27 60%, transparent)", pointerEvents:"none", zIndex:3 }} />
+      <div style={{ position:"absolute", bottom:0, left:0, right:0, height:itemHeight, background:"linear-gradient(to top, #1A1D27 60%, transparent)", pointerEvents:"none", zIndex:3 }} />
+      <div ref={listRef} onScroll={handleScroll} style={{ height:"100%", overflowY:"scroll", scrollbarWidth:"none", msOverflowStyle:"none", paddingTop:itemHeight, paddingBottom:itemHeight, WebkitOverflowScrolling:"touch" }}>
+        {items.map((item, i) => {
+          const isActive = String(item.value) === String(value);
+          return (
+            <div key={i} onClick={() => { if(listRef.current) listRef.current.scrollTop = i * itemHeight; onChange(item.value); }}
+              style={{ height:itemHeight, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", fontSize:isActive?20:16, fontWeight:isActive?800:400, color:isActive?"#4ECDC4":"#6B7299", transition:"all 0.1s", userSelect:"none" }}>
+              {item.label}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function MonthDayPicker({ value, onChange }) {
+  const now = new Date();
+  const year = value ? parseInt(value.split("-")[0]) : now.getFullYear();
+  const month = value ? parseInt(value.split("-")[1]) : now.getMonth() + 1;
+  const day   = value ? parseInt(value.split("-")[2]) : now.getDate();
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const monthItems = Array.from({length:12}, (_,i) => ({ value: i+1, label: `${i+1}月` }));
+  const dayItems   = Array.from({length:daysInMonth}, (_,i) => ({ value: i+1, label: `${i+1}日` }));
+  const setMonth = (m) => {
+    const maxD = new Date(year, m, 0).getDate();
+    onChange(`${year}-${String(m).padStart(2,"0")}-${String(Math.min(day,maxD)).padStart(2,"0")}`);
+  };
+  const setDay = (d) => {
+    onChange(`${year}-${String(month).padStart(2,"0")}-${String(d).padStart(2,"0")}`);
+  };
+  return (
+    <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+      <Reel items={monthItems} value={month} onChange={setMonth} width={86} />
+      <Reel items={dayItems}   value={day}   onChange={setDay}   width={86} />
+    </div>
+  );
+}
+
+function NumberReel({ value, onChange, width = 72 }) {
+  const items = Array.from({length:100}, (_,i) => ({ value: i, label: String(i) }));
+  const numVal = value === "" ? 0 : parseInt(value);
+  const safeVal = isNaN(numVal) ? 0 : numVal;
+  return <Reel items={items} value={safeVal} onChange={v => onChange(String(v))} width={width} />;
+}
+
+function SectionTitle({ children }) {
+  return <div style={{ fontSize:18, fontWeight:900, letterSpacing:"0.05em", color:"#4ECDC4", marginBottom:18, paddingBottom:10, borderBottom:"1px solid #2A2E45" }}>{children}</div>;
+}
+function EmptyState({ children }) {
+  return <div style={{ textAlign:"center", color:"#6B7299", fontSize:14, padding:"40px 0" }}>{children}</div>;
+}
+function ManInput({ label, fkey, value, onChangeReel }) {
+  return (
+    <div style={{ marginBottom:18 }}>
+      <div style={{ fontSize:12, color:C.muted, marginBottom:4, display:"block", fontWeight:600 }}>{label}</div>
+      <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+        <NumberReel value={value} onChange={v => onChangeReel(fkey, v)} width={86} />
+        <span style={{ color:C.muted, fontSize:16, fontWeight:700 }}>万円</span>
+        <span style={{ color:C.accent3, fontSize:13, fontWeight:700 }}>
+          {value !== "" ? `(${parseInt(value)||0}0,000円)` : ""}
+        </span>
+      </div>
+    </div>
+  );
+}
+function ManDisplay({ label, value, color = C.accent }) {
+  return (
+    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 0", borderBottom:"1px solid #2A2E45" }}>
+      <span style={{ color:C.muted, fontSize:14 }}>{label}</span>
+      <span style={{ color, fontSize:18, fontWeight:800 }}>{value !== "" ? `${parseInt(value)||0}万円` : "—"}</span>
+    </div>
+  );
+}
+
+function App() {
+  const [tab, setTab] = useState("食費暦");
+  const TABS = ["食費記録","食費暦","たてかえ記録","たてかえ暦","計算機","振込記録","振込暦"];
+  const TAB_LABELS = { "食費記録":"食", "食費暦":"食暦", "たてかえ記録":"た", "たてかえ暦":"た暦", "計算機":"計", "振込記録":"振", "振込暦":"振暦" };
+
+  const [shokuDate, setShokuDate] = useState(today());
+  const [shokuInputs, setShokuInputs] = useState({ shokuhi:"", jibarai:"", shomohin:"", goukei:"" });
+  const [shokuResult, setShokuResult] = useState(null);
+  const [shokuMonths, setShokuMonths] = useState(() => load("shokuMonths", {}));
+  const [openShokuMonth, setOpenShokuMonth] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+
+  const [tateDate, setTateDate] = useState(today());
+  const [tateSide, setTateSide] = useState("貸し");
+  const [tateAmount, setTateAmount] = useState("");
+  const [tateMemo, setTateMemo] = useState("");
+  const [tateMemoCustom, setTateMemoCustom] = useState(false);
+  const [tateCycles, setTateCycles] = useState(() => load("tateCycles", {}));
+  const [openTateCycle, setOpenTateCycle] = useState(null);
+  const [tateEdit, setTateEdit] = useState(null);
+
+  const [furikomi, setFurikomi] = useState({ kpay_balance:"", kpay_hikiotoshi:"", kozukai:"4", nokoshitai:"3", sara_karita:"", hozyuu:"", goukei_hozyuu:"" });
+  const [furikomiMonths, setFurikomiMonths] = useState(() => load("furikomiMonths", {}));
+  const [furikomiCurrentYM, setFurikomiCurrentYM] = useState(() => load("furikomiCurrentYM", currentYM()));
+  const [openFurikomiMonth, setOpenFurikomiMonth] = useState(null);
+  const [furikomiEdit, setFurikomiEdit] = useState(null);
+
+  const [calcDisplay, setCalcDisplay] = useState("0");
+  const [calcPrev, setCalcPrev] = useState(null);
+  const [calcOp, setCalcOp] = useState(null);
+  const [calcNew, setCalcNew] = useState(true);
+
+  useEffect(() => { save("shokuMonths", shokuMonths); }, [shokuMonths]);
+  useEffect(() => { save("tateCycles", tateCycles); }, [tateCycles]);
+  useEffect(() => { save("furikomiMonths", furikomiMonths); }, [furikomiMonths]);
+  useEffect(() => { save("furikomiCurrentYM", furikomiCurrentYM); }, [furikomiCurrentYM]);
+
+  const calcShoku = () => {
+    const s  = parseFloat(shokuInputs.shokuhi)  || 0;
+    const j  = parseFloat(shokuInputs.jibarai)  || 0;
+    const sh = parseFloat(shokuInputs.shomohin) || 0;
+    const g  = parseFloat(shokuInputs.goukei)   || 0;
+    const hasJ  = shokuInputs.jibarai  !== "" && shokuInputs.jibarai  !== "0";
+    const hasSh = shokuInputs.shomohin !== "" && shokuInputs.shomohin !== "0";
+    const hasG  = shokuInputs.goukei   !== "" && g !== 0;
+
+    const rj  = hasJ  ? Math.round(j  * 1.1) : null;
+    const rsh = hasSh ? Math.round(sh * 1.1) : null;
+
+    let rs, rg;
+    if (hasG) {
+      // 合計あり → ①食費 = ④ − (②×1.1 + ③×1.1)
+      const filledSum = (hasJ ? j*1.1 : 0) + (hasSh ? sh*1.1 : 0);
+      rs = Math.round(g - filledSum);
+      rg = g;
+    } else {
+      // 合計なし → ①食費はそのまま×1.1、合計は自動
+      rs = s > 0 ? Math.round(s * 1.1) : null;
+      rg = (rs||0) + (rj||0) + (rsh||0);
+    }
+
+    setShokuResult({ shokuhi: rs, jibarai: rj, shomohin: rsh, goukei: rg });
+  };
+
+  const recordShoku = () => {
+    if (!shokuResult) return;
+    const ym = shokuDate.slice(0,7);
+    setShokuMonths(prev => ({ ...prev, [ym]: { records: [{ id:Date.now(), date:shokuDate, shokuhi:shokuResult.shokuhi, shomohin:shokuResult.shomohin }, ...(prev[ym]?.records||[])] } }));
+    if (shokuResult.jibarai !== null && shokuResult.jibarai > 0) {
+      const ck = tateCycleKey(shokuDate);
+      setTateCycles(prev => ({ ...prev, [ck]: { records: [{ id:Date.now()+1, date:shokuDate, side:"貸し", amount:Math.round(shokuResult.jibarai), memo:"ごはん" }, ...(prev[ck]?.records||[])] } }));
+    }
+    setShokuInputs({ shokuhi:"", jibarai:"", shomohin:"", goukei:"" });
+    setShokuResult(null);
+  };
+
+  const deleteShokuRecord = (ym, id) => {
+    setShokuMonths(prev => ({ ...prev, [ym]: { records: prev[ym].records.filter(r=>r.id!==id) } }));
+    setDeleteConfirm(null);
+  };
+
+  const recordTate = () => {
+    if (!tateAmount) return;
+    const ck = tateCycleKey(tateDate);
+    setTateCycles(prev => ({ ...prev, [ck]: { records: [{ id:Date.now(), date:tateDate, side:tateSide, amount:parseFloat(tateAmount), memo:tateMemo }, ...(prev[ck]?.records||[])] } }));
+    setTateAmount(""); setTateMemo("");
+  };
+
+  const saveTateEdit = () => {
+    if (!tateEdit) return;
+    const { ck, id, side, amount, memo } = tateEdit;
+    setTateCycles(prev => ({ ...prev, [ck]: { records: prev[ck].records.map(r => r.id===id ? {...r,side,amount:parseFloat(amount)||0,memo} : r) } }));
+    setTateEdit(null);
+  };
+
+  const deleteTateRecord = (ck, id) => {
+    setTateCycles(prev => ({ ...prev, [ck]: { records: prev[ck].records.filter(r=>r.id!==id) } }));
+    setTateEdit(null);
+  };
+
+  const tateKurikoshi = () => {
+    // 現在の最新サイクルキーを取得
+    const cks = Object.keys(tateCycles).sort((a,b)=>b.localeCompare(a));
+    if (cks.length === 0) return;
+    const currentCk = cks[0];
+
+    // 翌サイクルキー（現在のckの翌月）
+    const [y, m] = currentCk.split("-").map(Number);
+    const nextDate = new Date(y, m, 1); // 翌月1日
+    const nextCk = `${nextDate.getFullYear()}-${String(nextDate.getMonth()+1).padStart(2,"0")}`;
+    const nextDate16 = `${nextDate.getFullYear()}-${String(nextDate.getMonth()+1).padStart(2,"0")}-16`;
+
+    // 現サイクルの差（貸し合計 − 借り合計）
+    const tot = tateTotals(currentCk);
+    const balance = tot.kashi - tot.kari;
+
+    // 振込暦の最新データを取得
+    const furikomiYMs = Object.keys(furikomiMonths).sort((a,b)=>b.localeCompare(a));
+    const latestFurikomi = furikomiYMs.length > 0 ? furikomiMonths[furikomiYMs[0]] : null;
+
+    const newRecords = [];
+    const baseId = Date.now();
+
+    // ① 差がマイナス → 前月借金（借り）、プラス → 家計からもらう（貸し）
+    if (balance !== 0) {
+      newRecords.push({
+        id: baseId,
+        date: nextDate16,
+        side: balance < 0 ? "借り" : "貸し",
+        amount: Math.abs(balance),
+        memo: balance < 0 ? "前月借金" : "家計からもらう",
+      });
+    }
+
+    // ② 振込暦のKさらに借りた → 今月の借り（借り）
+    if (latestFurikomi) {
+      const sara = parseInt(latestFurikomi.sara_karita) || 0;
+      if (sara !== 0) {
+        newRecords.push({
+          id: baseId + 1,
+          date: nextDate16,
+          side: "借り",
+          amount: Math.abs(sara) * 10000,
+          memo: "今月借り",
+        });
+      }
+
+      // ③ 振込暦の家計補充金額 → 家計に移動（貸し）
+      const hoz = parseInt(latestFurikomi.hozyuu) || 0;
+      if (hoz !== 0) {
+        newRecords.push({
+          id: baseId + 2,
+          date: nextDate16,
+          side: "貸し",
+          amount: hoz * 10000,
+          memo: "家計に移動",
+        });
+      }
+    }
+
+    // 翌サイクルに記録追加
+    setTateCycles(prev => ({
+      ...prev,
+      [nextCk]: {
+        records: [
+          ...newRecords,
+          ...(prev[nextCk]?.records || []),
+        ]
+      }
+    }));
+  };
+
+  const calcFurikomi = (f) => {
+    const kpb=parseFloat(f.kpay_balance)||0, kph=parseFloat(f.kpay_hikiotoshi)||0;
+    const kz=parseFloat(f.kozukai)||0, nk=parseFloat(f.nokoshitai)||0;
+    const sara=nk+kph-kz-kpb, hoz=parseFloat(f.hozyuu)||0;
+    return { ...f, sara_karita:sara.toFixed(0), goukei_hozyuu:(hoz+sara).toFixed(0) };
+  };
+
+  const updateFurikomi = (key, val) => setFurikomi(calcFurikomi({ ...furikomi, [key]:val }));
+
+  const furikomiKurikoshi = () => {
+    const ym = furikomiCurrentYM;
+    setFurikomiMonths(prev => {
+      const targetYM = prev[ym]
+        ? (() => { const d=new Date(ym+"-01"); d.setMonth(d.getMonth()+1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; })()
+        : ym;
+      return { ...prev, [targetYM]: { ...furikomi, savedAt:new Date().toISOString() } };
+    });
+    const d=new Date(ym+"-01"); d.setMonth(d.getMonth()+1);
+    setFurikomiCurrentYM(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);
+    setFurikomi({ kpay_balance:"", kpay_hikiotoshi:"", kozukai:"4", nokoshitai:"3", sara_karita:"", hozyuu:"", goukei_hozyuu:"" });
+  };
+
+  const calcPress = (v) => {
+    if (v==="C") { setCalcDisplay("0"); setCalcPrev(null); setCalcOp(null); setCalcNew(true); return; }
+    if (v==="±") { setCalcDisplay(d=>String(-parseFloat(d))); return; }
+    if (v==="%") { setCalcDisplay(d=>String(parseFloat(d)/100)); return; }
+    if (["+","-","×","÷"].includes(v)) { setCalcPrev(parseFloat(calcDisplay)); setCalcOp(v); setCalcNew(true); return; }
+    if (v==="=") {
+      if (calcOp && calcPrev!==null) {
+        const cur=parseFloat(calcDisplay);
+        let res;
+        if (calcOp==="+") res=calcPrev+cur; else if (calcOp==="-") res=calcPrev-cur;
+        else if (calcOp==="×") res=calcPrev*cur; else if (calcOp==="÷") res=cur===0?"エラー":calcPrev/cur;
+        setCalcDisplay(String(res)); setCalcPrev(null); setCalcOp(null); setCalcNew(true);
+      }
+      return;
+    }
+    if (v===".") { if (calcNew){setCalcDisplay("0.");setCalcNew(false);return;} if(!calcDisplay.includes(".")) setCalcDisplay(d=>d+"."); return; }
+    if (calcNew) { setCalcDisplay(v==="0"?"0":v); setCalcNew(false); }
+    else { setCalcDisplay(d=>d==="0"?v:d+v); }
+  };
+
+  const inputStyle = { background:C.card, border:`1px solid ${C.border}`, borderRadius:10, color:C.text, fontSize:16, padding:"10px 14px", width:"100%", boxSizing:"border-box", outline:"none" };
+  const labelStyle = { fontSize:12, color:C.muted, marginBottom:4, display:"block", fontWeight:600 };
+  const btnPrimary = { background:`linear-gradient(135deg,${C.accent},#3BA8A0)`, color:C.bg, border:"none", borderRadius:12, padding:"13px 20px", fontWeight:800, fontSize:14, cursor:"pointer", width:"100%", letterSpacing:"0.05em" };
+  const btnSecondary = { background:C.card, color:C.accent, border:`1px solid ${C.accent}`, borderRadius:12, padding:"13px 20px", fontWeight:700, fontSize:14, cursor:"pointer", width:"100%", letterSpacing:"0.03em" };
+
+  const resultRow = (label, val, color=C.accent) => (
+    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 0", borderBottom:`1px solid ${C.border}` }}>
+      <span style={{ color:C.muted, fontSize:14 }}>{label}</span>
+      <span style={{ color, fontSize:18, fontWeight:800 }}>{val===null?"—":`¥${Math.round(val).toLocaleString()}`}</span>
+    </div>
+  );
+
+  const shokuTotals = (ym) => {
+    const recs=(shokuMonths[ym]?.records)||[];
+    const shokuhi=recs.reduce((s,r)=>s+(r.shokuhi||0),0);
+    const shomohin=recs.reduce((s,r)=>s+(r.shomohin||0),0);
+    let yosoku=null;
+    if (recs.length>0) {
+      const day=parseInt(recs[0].date.split("-")[2]);
+      const [y,m]=ym.split("-").map(Number);
+      if (day>0) yosoku=Math.round((shokuhi/day)*new Date(y,m,0).getDate());
+    }
+    return { shokuhi, shomohin, yosoku };
+  };
+
+  const tateTotals = (ck) => {
+    const recs=(tateCycles[ck]?.records)||[];
+    return { kashi:recs.filter(r=>r.side==="貸し").reduce((s,r)=>s+r.amount,0), kari:recs.filter(r=>r.side==="借り").reduce((s,r)=>s+r.amount,0) };
+  };
+
+  const tabStyle = (t) => ({ padding:"6px 0", border:"none", cursor:"pointer", background:tab===t?C.accent:"transparent", color:tab===t?C.bg:C.muted, borderRadius:7, transition:"all 0.2s", flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"space-evenly", minHeight:64 });
+
+  return (
+    <div style={{ minHeight:"100vh", background:C.bg, color:C.text }}>
+      <div style={{ background:C.surface, padding:"env(safe-area-inset-top, 18px) 16px 10px", borderBottom:`1px solid ${C.border}`, position:"sticky", top:0, zIndex:100 }}>
+        <h1 style={{ margin:"0 0 10px", fontSize:19, fontWeight:900, letterSpacing:"0.08em", color:C.accent }}>💰 家計管理</h1>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:3, background:C.card, borderRadius:11, padding:3 }}>
+          {[...TABS].reverse().map(t => {
+            const label = TAB_LABELS[t];
+            const chars = label.split("");
+            return (
+              <button key={t} onClick={()=>setTab(t)} style={tabStyle(t)}>
+                {chars.map((c,i) => (
+                  <span key={i} style={{ fontSize:15, fontWeight:800, lineHeight:1, display:"block" }}>{c}</span>
+                ))}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div style={{ padding:"16px 16px 80px" }}>
+
+        {/* 食費記録 */}
+        {tab==="食費記録" && (
+          <div>
+            <SectionTitle>食費記録</SectionTitle>
+            <div style={{ marginBottom:14 }}>
+              <label style={labelStyle}>⓪ 日付</label>
+              <MonthDayPicker value={shokuDate} onChange={setShokuDate} />
+            </div>
+            {[{key:"shokuhi",label:"① 食費"},{key:"jibarai",label:"② 自腹"},{key:"shomohin",label:"③ 消耗品"}].map(({key,label}) => (
+              <div key={key} style={{ marginBottom:14 }}>
+                <label style={labelStyle}>{label}</label>
+                <div style={{ display:"flex", gap:8 }}>
+                  <input type="number" placeholder="空欄可" value={shokuInputs[key]}
+                    onChange={e=>setShokuInputs(p=>({...p,[key]:e.target.value}))}
+                    onFocus={()=>{ if(shokuInputs[key]==="0") setShokuInputs(p=>({...p,[key]:""})); }}
+                    style={inputStyle} />
+                  <button onClick={()=>setShokuInputs(p=>({...p,[key]:calcDisplay}))} style={{ background:C.surface, color:C.accent3, border:`1px solid ${C.accent3}`, borderRadius:10, padding:"0 14px", fontWeight:800, fontSize:14, cursor:"pointer", whiteSpace:"nowrap", flexShrink:0 }}>算</button>
+                </div>
+              </div>
+            ))}
+            <div style={{ marginBottom:20 }}>
+              <label style={labelStyle}>④ 合計</label>
+              <div style={{ display:"flex", gap:8 }}>
+                <input type="number" value={shokuInputs.goukei} onChange={e=>setShokuInputs(p=>({...p,goukei:e.target.value}))} style={inputStyle} />
+                <button onClick={()=>setShokuInputs(p=>({...p,goukei:calcDisplay}))} style={{ background:C.surface, color:C.accent3, border:`1px solid ${C.accent3}`, borderRadius:10, padding:"0 14px", fontWeight:800, fontSize:14, cursor:"pointer", whiteSpace:"nowrap", flexShrink:0 }}>算</button>
+              </div>
+            </div>
+            <div style={{ marginBottom:20, display:"flex", flexDirection:"column", gap:10 }}>
+              <button style={btnPrimary} onClick={calcShoku}>食費計算</button>
+              {shokuResult && <button style={btnPrimary} onClick={recordShoku}>記録する</button>}
+            </div>
+            {shokuResult && (
+              <div style={{ background:C.card, borderRadius:16, padding:16, marginBottom:16 }}>
+                <div style={{ fontSize:13, fontWeight:800, color:C.accent, marginBottom:12 }}>計算結果</div>
+                {resultRow("① 食費", shokuResult.shokuhi)}
+                {resultRow("② 自腹", shokuResult.jibarai)}
+                {resultRow("③ 消耗品", shokuResult.shomohin)}
+                {resultRow("④ 合計", shokuResult.goukei, C.accent3)}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 食費暦 */}
+        {tab==="食費暦" && (
+          <div>
+            <SectionTitle>食費暦</SectionTitle>
+            {Object.keys(shokuMonths).length===0 && <EmptyState>記録がありません</EmptyState>}
+            {Object.keys(shokuMonths).sort((a,b)=>b.localeCompare(a)).map(ym => {
+              const tot=shokuTotals(ym); const isOpen=openShokuMonth===ym;
+              return (
+                <div key={ym} style={{ background:C.card, borderRadius:14, marginBottom:12, overflow:"hidden" }}>
+                  <button onClick={()=>setOpenShokuMonth(isOpen?null:ym)} style={{ width:"100%", background:"transparent", border:"none", cursor:"pointer", padding:"14px 16px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                    <span style={{ color:C.text, fontWeight:800, fontSize:15 }}>{monthLabel(ym)}</span>
+                    <div style={{ display:"flex", gap:12, alignItems:"center" }}>
+                      <span style={{ fontSize:12, color:C.accent }}>食費 ¥{Math.round(tot.shokuhi).toLocaleString()}</span>
+                      <span style={{ fontSize:12, color:C.accent3 }}>消耗 ¥{Math.round(tot.shomohin).toLocaleString()}</span>
+                      <span style={{ color:C.muted, fontSize:16 }}>{isOpen?"▲":"▼"}</span>
+                    </div>
+                  </button>
+                  {tot.yosoku!==null && (
+                    <div style={{ padding:"0 16px 12px", display:"flex", alignItems:"center", gap:8 }}>
+                      <span style={{ fontSize:11, color:C.muted, fontWeight:600 }}>📈 月予測</span>
+                      <span style={{ fontSize:15, fontWeight:800, color:"#B794F4" }}>¥{tot.yosoku.toLocaleString()}</span>
+                    </div>
+                  )}
+                  {isOpen && (
+                    <div style={{ borderTop:`1px solid ${C.border}` }}>
+                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 36px", padding:"8px 16px", background:C.surface }}>
+                        {["日付","食費","消耗品",""].map((h,i)=><span key={i} style={{ fontSize:11, color:i===1?C.accent:i===2?C.accent3:C.muted, fontWeight:700 }}>{h}</span>)}
+                      </div>
+                      {(shokuMonths[ym]?.records||[]).map(r => (
+                        <div key={r.id} style={{ borderTop:`1px solid ${C.border}` }}>
+                          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 36px", padding:"10px 16px", alignItems:"center" }}>
+                            <span style={{ fontSize:13, color:C.text }}>{r.date.slice(5)}</span>
+                            <span style={{ fontSize:13, color:C.accent }}>¥{Math.round(r.shokuhi||0).toLocaleString()}</span>
+                            <span style={{ fontSize:13, color:C.accent3 }}>¥{Math.round(r.shomohin||0).toLocaleString()}</span>
+                            <button onClick={()=>setDeleteConfirm(deleteConfirm?.id===r.id?null:{ym,id:r.id})} style={{ background:"transparent", border:`1px solid ${C.accent2}`, borderRadius:6, color:C.accent2, cursor:"pointer", fontSize:14, width:28, height:28, display:"flex", alignItems:"center", justifyContent:"center", padding:0 }}>✕</button>
+                          </div>
+                          {deleteConfirm?.id===r.id && deleteConfirm?.ym===ym && (
+                            <div style={{ display:"flex", gap:8, padding:"6px 16px 12px", alignItems:"center" }}>
+                              <span style={{ fontSize:12, color:C.accent2, flex:1 }}>この記録を削除しますか？</span>
+                              <button onClick={()=>deleteShokuRecord(ym,r.id)} style={{ background:C.accent2, color:"#fff", border:"none", borderRadius:8, padding:"6px 14px", fontWeight:700, fontSize:12, cursor:"pointer" }}>削除</button>
+                              <button onClick={()=>setDeleteConfirm(null)} style={{ background:C.surface, color:C.muted, border:`1px solid ${C.border}`, borderRadius:8, padding:"6px 14px", fontWeight:700, fontSize:12, cursor:"pointer" }}>キャンセル</button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* たてかえ記録 */}
+        {tab==="たてかえ記録" && (
+          <div>
+            <SectionTitle>たてかえ記録</SectionTitle>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr auto", gap:10, marginBottom:14 }}>
+              <div>
+                <label style={labelStyle}>日付</label>
+                <MonthDayPicker value={tateDate} onChange={setTateDate} />
+              </div>
+              <div>
+                <label style={labelStyle}>種別</label>
+                <div style={{ display:"flex", background:C.card, borderRadius:10, overflow:"hidden", border:`1px solid ${C.border}`, height:44, marginTop:2 }}>
+                  {["貸し","借り"].map(s=>(
+                    <button key={s} onClick={()=>setTateSide(s)} style={{ flex:1, border:"none", cursor:"pointer", fontWeight:700, fontSize:14, background:tateSide===s?(s==="貸し"?C.accent:C.accent2):"transparent", color:tateSide===s?C.bg:C.muted, transition:"all 0.2s", padding:"0 14px" }}>{s}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:14 }}>
+              <div>
+                <label style={labelStyle}>金額</label>
+                <input type="number" value={tateAmount} onChange={e=>setTateAmount(e.target.value)} placeholder="0" style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>メモ</label>
+                {tateMemoCustom ? (
+                  <input value={tateMemo} onChange={e=>setTateMemo(e.target.value)} placeholder="自由入力" style={inputStyle} onBlur={()=>{ if(!tateMemo) setTateMemoCustom(false); }} />
+                ) : (
+                  <select value={tateMemo} onChange={e=>{ if(e.target.value==="__custom__") setTateMemoCustom(true); else setTateMemo(e.target.value); }} style={{ ...inputStyle, cursor:"pointer" }}>
+                    <option value="">選択</option>
+                    {MEMO_OPTIONS.map(m=><option key={m} value={m}>{m}</option>)}
+                    <option value="__custom__">自由入力…</option>
+                  </select>
+                )}
+              </div>
+            </div>
+            <div style={{ background:C.surface, borderRadius:10, padding:"10px 14px", marginBottom:14 }}>
+              <span style={{ fontSize:12, color:C.muted }}>記録先サイクル：</span>
+              <span style={{ fontSize:13, color:C.accent3, fontWeight:700 }}> {tateCycleLabel(tateCycleKey(tateDate))}</span>
+            </div>
+            <button style={btnPrimary} onClick={recordTate}>たてかえ記録</button>
+          </div>
+        )}
+
+        {/* たてかえ暦 */}
+        {tab==="たてかえ暦" && (
+          <div>
+            <SectionTitle>たてかえ暦</SectionTitle>
+            <button onClick={tateKurikoshi} style={{ ...btnSecondary, marginBottom:16 }}>たてかえ繰り越し（翌サイクルへ）</button>
+            {Object.keys(tateCycles).length===0 && <EmptyState>記録がありません</EmptyState>}
+            {Object.keys(tateCycles).sort((a,b)=>b.localeCompare(a)).map(ck => {
+              const tot=tateTotals(ck); const isOpen=openTateCycle===ck; const balance=tot.kashi-tot.kari;
+              return (
+                <div key={ck} style={{ background:C.card, borderRadius:14, marginBottom:12, overflow:"hidden" }}>
+                  <button onClick={()=>setOpenTateCycle(isOpen?null:ck)} style={{ width:"100%", background:"transparent", border:"none", cursor:"pointer", padding:"14px 16px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                    <span style={{ color:C.text, fontWeight:800, fontSize:14 }}>{tateCycleLabel(ck)}</span>
+                    <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                      <span style={{ fontSize:11, color:C.accent }}>貸 ¥{tot.kashi.toLocaleString()}</span>
+                      <span style={{ fontSize:11, color:C.accent2 }}>借 ¥{tot.kari.toLocaleString()}</span>
+                      <span style={{ fontSize:11, color:balance>=0?C.accent3:C.accent2, fontWeight:800 }}>差{balance>=0?"+":""}{balance.toLocaleString()}</span>
+                      <span style={{ color:C.muted, fontSize:16 }}>{isOpen?"▲":"▼"}</span>
+                    </div>
+                  </button>
+                  {isOpen && (
+                    <div style={{ borderTop:`1px solid ${C.border}` }}>
+                      <div style={{ display:"grid", gridTemplateColumns:"52px 44px 1fr 70px 28px", padding:"8px 16px", background:C.surface }}>
+                        {["日付","種別","メモ","金額",""].map(h=><span key={h} style={{ fontSize:11, color:C.muted, fontWeight:700 }}>{h}</span>)}
+                      </div>
+                      {[...(tateCycles[ck]?.records||[])].sort((a,b)=>b.date.localeCompare(a.date)).map(r => (
+                        <div key={r.id} style={{ borderTop:`1px solid ${C.border}` }}>
+                          {tateEdit?.id===r.id ? (
+                            <div style={{ padding:"10px 16px" }}>
+                              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
+                                <div>
+                                  <div style={{ fontSize:11, color:C.muted, marginBottom:3 }}>種別</div>
+                                  <div style={{ display:"flex", borderRadius:8, overflow:"hidden", border:`1px solid ${C.border}` }}>
+                                    {["貸し","借り"].map(s=>(
+                                      <button key={s} onClick={()=>setTateEdit(e=>({...e,side:s}))} style={{ flex:1, border:"none", cursor:"pointer", fontWeight:700, fontSize:13, padding:"8px 0", background:tateEdit.side===s?(s==="貸し"?C.accent:C.accent2):C.surface, color:tateEdit.side===s?C.bg:C.muted }}>{s}</button>
+                                    ))}
+                                  </div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize:11, color:C.muted, marginBottom:3 }}>金額</div>
+                                  <input type="number" value={tateEdit.amount} onChange={e=>setTateEdit(ev=>({...ev,amount:e.target.value}))} style={{ ...inputStyle, padding:"8px 10px", fontSize:14 }} />
+                                </div>
+                              </div>
+                              <div style={{ marginBottom:8 }}>
+                                <div style={{ fontSize:11, color:C.muted, marginBottom:3 }}>メモ</div>
+                                <select value={MEMO_OPTIONS.includes(tateEdit.memo)?tateEdit.memo:"__custom__"} onChange={e=>{ if(e.target.value!=="__custom__") setTateEdit(ev=>({...ev,memo:e.target.value})); }} style={{ ...inputStyle, padding:"8px 10px", fontSize:13, marginBottom:!MEMO_OPTIONS.includes(tateEdit.memo)?6:0 }}>
+                                  {MEMO_OPTIONS.map(m=><option key={m} value={m}>{m}</option>)}
+                                  <option value="__custom__">自由入力</option>
+                                </select>
+                                {!MEMO_OPTIONS.includes(tateEdit.memo) && (
+                                  <input value={tateEdit.memo} onChange={e=>setTateEdit(ev=>({...ev,memo:e.target.value}))} placeholder="自由入力" style={{ ...inputStyle, padding:"8px 10px", fontSize:13 }} />
+                                )}
+                              </div>
+                              <div style={{ display:"flex", gap:8 }}>
+                                <button onClick={saveTateEdit} style={{ flex:1, background:C.accent, color:C.bg, border:"none", borderRadius:8, padding:"8px 0", fontWeight:800, fontSize:13, cursor:"pointer" }}>保存</button>
+                                <button onClick={()=>setTateEdit(null)} style={{ flex:1, background:C.surface, color:C.muted, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 0", fontWeight:700, fontSize:13, cursor:"pointer" }}>キャンセル</button>
+                                <button onClick={()=>deleteTateRecord(ck,r.id)} style={{ background:"transparent", color:C.accent2, border:`1px solid ${C.accent2}`, borderRadius:8, padding:"8px 12px", fontWeight:700, fontSize:13, cursor:"pointer" }}>削除</button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div style={{ display:"grid", gridTemplateColumns:"52px 44px 1fr 70px 28px", padding:"10px 16px", alignItems:"center" }} onClick={()=>setTateEdit({ck,id:r.id,side:r.side,amount:r.amount,memo:r.memo||""})}>
+                              <span style={{ fontSize:12, color:C.text }}>{r.date.slice(5)}</span>
+                              <span style={{ fontSize:12, fontWeight:700, color:r.side==="貸し"?C.accent:C.accent2 }}>{r.side}</span>
+                              <span style={{ fontSize:12, color:C.muted }}>{r.memo}</span>
+                              <span style={{ fontSize:13, color:C.text, textAlign:"right" }}>¥{r.amount.toLocaleString()}</span>
+                              <span style={{ fontSize:16, color:C.muted, textAlign:"center" }}>✏️</span>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* 振込記録 */}
+        {tab==="振込記録" && (
+          <div>
+            <SectionTitle>振込記録 — {monthLabel(furikomiCurrentYM)}</SectionTitle>
+            <ManInput label="⑦ Kペイ残高" fkey="kpay_balance" value={furikomi.kpay_balance} onChangeReel={updateFurikomi} />
+            <ManInput label="⑥ Kペイ引き落とし" fkey="kpay_hikiotoshi" value={furikomi.kpay_hikiotoshi} onChangeReel={updateFurikomi} />
+            <ManInput label="⑤ 振込小遣い" fkey="kozukai" value={furikomi.kozukai} onChangeReel={updateFurikomi} />
+            <ManInput label="④ 引落後、残したい" fkey="nokoshitai" value={furikomi.nokoshitai} onChangeReel={updateFurikomi} />
+            <div style={{ background:C.card, borderRadius:14, padding:"14px 16px", marginBottom:16 }}>
+              <ManDisplay label="③ Kさらに借りた (④+⑥−⑤−⑦)" value={furikomi.sara_karita} color={C.accent2} />
+            </div>
+            <ManInput label="② 家計補充金額" fkey="hozyuu" value={furikomi.hozyuu} onChangeReel={updateFurikomi} />
+            <div style={{ background:C.card, borderRadius:14, padding:"14px 16px", marginBottom:24 }}>
+              <ManDisplay label="① 合計補充金額 (②+③)" value={furikomi.goukei_hozyuu} color={C.accent3} />
+            </div>
+            <button style={btnSecondary} onClick={furikomiKurikoshi}>振込繰り越し（翌月へ保存）</button>
+          </div>
+        )}
+
+        {/* 振込暦 */}
+        {tab==="振込暦" && (
+          <div>
+            <SectionTitle>振込暦</SectionTitle>
+            {Object.keys(furikomiMonths).length===0 && <EmptyState>記録がありません</EmptyState>}
+            {Object.keys(furikomiMonths).sort((a,b)=>b.localeCompare(a)).map(ym => {
+              const r=furikomiMonths[ym]; const isOpen=openFurikomiMonth===ym; const isEditing=furikomiEdit===ym;
+              const FIELDS = [
+                {label:"⑦ Kペイ残高",key:"kpay_balance",color:C.text},
+                {label:"⑥ Kペイ引き落とし",key:"kpay_hikiotoshi",color:C.text},
+                {label:"⑤ 振込小遣い",key:"kozukai",color:C.text},
+                {label:"④ 引落後、残したい",key:"nokoshitai",color:C.text},
+                {label:"③ Kさらに借りた",key:"sara_karita",color:C.accent2,readonly:true},
+                {label:"② 家計補充金額",key:"hozyuu",color:C.accent},
+                {label:"① 合計補充金額",key:"goukei_hozyuu",color:C.accent3,readonly:true},
+              ];
+              return (
+                <div key={ym} style={{ background:C.card, borderRadius:14, marginBottom:12, overflow:"hidden" }}>
+                  <div style={{ display:"flex", alignItems:"center" }}>
+                    <button onClick={()=>{ setOpenFurikomiMonth(isOpen?null:ym); setFurikomiEdit(null); }} style={{ flex:1, background:"transparent", border:"none", cursor:"pointer", padding:"14px 16px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                      <span style={{ color:C.text, fontWeight:800, fontSize:15 }}>{monthLabel(ym)}</span>
+                      <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+                        <span style={{ fontSize:12, color:C.accent3, fontWeight:700 }}>合計補充 {r.goukei_hozyuu}万円</span>
+                        <span style={{ color:C.muted, fontSize:16 }}>{isOpen?"▲":"▼"}</span>
+                      </div>
+                    </button>
+                  </div>
+                  {isOpen && (
+                    <div style={{ borderTop:`1px solid ${C.border}` }}>
+                      {isEditing ? (
+                        <div style={{ padding:"14px 16px" }}>
+                          {FIELDS.filter(f=>!f.readonly).map(({label,key,color}) => (
+                            <div key={key} style={{ marginBottom:14 }}>
+                              <div style={{ fontSize:11, color:C.muted, fontWeight:700, marginBottom:6 }}>{label}</div>
+                              <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                                <NumberReel value={furikomiMonths[ym][key]??"0"} onChange={v=>{
+                                  setFurikomiMonths(prev=>{
+                                    const upd={...prev[ym],[key]:v};
+                                    const kpb=parseFloat(upd.kpay_balance)||0,kph=parseFloat(upd.kpay_hikiotoshi)||0;
+                                    const kz=parseFloat(upd.kozukai)||0,nk=parseFloat(upd.nokoshitai)||0;
+                                    const sara=nk+kph-kz-kpb, hoz=parseFloat(upd.hozyuu)||0;
+                                    upd.sara_karita=sara.toFixed(0); upd.goukei_hozyuu=(hoz+sara).toFixed(0);
+                                    return {...prev,[ym]:upd};
+                                  });
+                                }} width={80} />
+                                <span style={{ color, fontSize:14, fontWeight:700 }}>万円</span>
+                              </div>
+                            </div>
+                          ))}
+                          {FIELDS.filter(f=>f.readonly).map(({label,key,color})=>(
+                            <div key={key} style={{ display:"flex", justifyContent:"space-between", padding:"8px 0", borderBottom:`1px solid ${C.border}` }}>
+                              <span style={{ fontSize:13, color:C.muted }}>{label}（自動）</span>
+                              <span style={{ fontSize:14, fontWeight:800, color }}>{parseInt(furikomiMonths[ym][key])||0}万円</span>
+                            </div>
+                          ))}
+                          <div style={{ display:"flex", gap:8, marginTop:14 }}>
+                            <button onClick={()=>setFurikomiEdit(null)} style={{ flex:1, background:C.accent, color:C.bg, border:"none", borderRadius:8, padding:"10px 0", fontWeight:800, fontSize:13, cursor:"pointer" }}>完了</button>
+                            <button onClick={()=>{ setFurikomiMonths(prev=>{ const n={...prev}; delete n[ym]; return n; }); setFurikomiEdit(null); setOpenFurikomiMonth(null); }} style={{ background:"transparent", color:C.accent2, border:`1px solid ${C.accent2}`, borderRadius:8, padding:"10px 16px", fontWeight:700, fontSize:13, cursor:"pointer" }}>月削除</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ padding:"12px 16px" }}>
+                          {FIELDS.map(({label,key,color})=>(
+                            <div key={key} style={{ display:"flex", justifyContent:"space-between", padding:"8px 0", borderBottom:`1px solid ${C.border}` }}>
+                              <span style={{ fontSize:13, color:C.muted }}>{label}</span>
+                              <span style={{ fontSize:14, fontWeight:700, color }}>{r[key]!==""&&r[key]!==undefined?`${parseInt(r[key])||0}万円`:"—"}</span>
+                            </div>
+                          ))}
+                          <button onClick={()=>setFurikomiEdit(ym)} style={{ marginTop:12, width:"100%", background:C.surface, color:C.accent, border:`1px solid ${C.accent}`, borderRadius:10, padding:"10px 0", fontWeight:700, fontSize:13, cursor:"pointer" }}>✏️ 編集する</button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* 計算機 */}
+        {tab==="計算機" && (
+          <div>
+            <SectionTitle>計算機</SectionTitle>
+            <div style={{ background:C.card, borderRadius:20, padding:16, maxWidth:340, margin:"0 auto" }}>
+              <div style={{ background:C.surface, borderRadius:14, padding:"16px 20px", marginBottom:16, textAlign:"right", minHeight:72, display:"flex", flexDirection:"column", justifyContent:"flex-end" }}>
+                {calcOp && <div style={{ color:C.muted, fontSize:13, marginBottom:2 }}>{calcPrev} {calcOp}</div>}
+                <div style={{ fontSize:calcDisplay.length>10?22:36, fontWeight:800, color:C.accent, letterSpacing:"-0.02em", wordBreak:"break-all" }}>
+                  {!isNaN(parseFloat(calcDisplay))?parseFloat(calcDisplay).toLocaleString("ja-JP",{maximumFractionDigits:10}):calcDisplay}
+                </div>
+              </div>
+              {[["C","±","%","÷"],["7","8","9","×"],["4","5","6","-"],["1","2","3","+"],["税","0",".","="]].map((row,ri) => (
+                <div key={ri} style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:10 }}>
+                  {row.map((v,ci) => {
+                    const isOp=["+","-","×","÷","="].includes(v), isFn=["C","±","%"].includes(v), isTax=v==="税";
+                    return <button key={ci} onClick={()=> isTax ? setCalcDisplay(d=>String(Math.round(parseFloat(d)*1.1))) : calcPress(v)} style={{ height:68, borderRadius:16, border:"none", cursor:"pointer", fontSize:isTax?18:22, fontWeight:800, background:isTax?"#3D2E5C":isOp?(v==="="?C.accent:"#2E3A5C"):isFn?C.surface:C.bg, color:isTax?"#B794F4":isOp?(v==="="?C.bg:C.accent):isFn?C.muted:C.text, boxShadow:"0 2px 8px rgba(0,0,0,0.3)" }}>{v}</button>;
+                  })}
+                </div>
+              ))}
+            </div>
+
+            {/* エクスポート／インポート */}
+            <div style={{ marginTop:28, background:C.card, borderRadius:16, padding:20 }}>
+              <div style={{ fontSize:13, color:C.muted, fontWeight:700, marginBottom:14 }}>データのバックアップ</div>
+              <button onClick={() => {
+                const data = { shokuMonths, tateCycles, furikomiMonths, furikomiCurrentYM, exportedAt: new Date().toISOString() };
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url; a.download = `kakeibo_backup_${new Date().toISOString().slice(0,10)}.json`; a.click();
+                URL.revokeObjectURL(url);
+              }} style={{ ...btnPrimary, marginBottom:10 }}>📤 エクスポート（データ保存）</button>
+              <label style={{ display:"block", background:C.surface, color:C.accent, border:`1px solid ${C.accent}`, borderRadius:12, padding:"13px 20px", fontWeight:700, fontSize:14, cursor:"pointer", textAlign:"center", letterSpacing:"0.03em" }}>
+                📥 インポート（データ復元）
+                <input type="file" accept=".json" style={{ display:"none" }} onChange={e => {
+                  const file = e.target.files[0]; if (!file) return;
+                  const reader = new FileReader();
+                  reader.onload = ev => {
+                    try {
+                      const d = JSON.parse(ev.target.result);
+                      if (d.shokuMonths) setShokuMonths(d.shokuMonths);
+                      if (d.tateCycles) setTateCycles(d.tateCycles);
+                      if (d.furikomiMonths) setFurikomiMonths(d.furikomiMonths);
+                      if (d.furikomiCurrentYM) setFurikomiCurrentYM(d.furikomiCurrentYM);
+                      alert("インポート完了！");
+                    } catch { alert("ファイルが正しくありません"); }
+                  };
+                  reader.readAsText(file);
+                  e.target.value = "";
+                }} />
+              </label>
+            </div>
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
+</script>
+</body>
+</html>
