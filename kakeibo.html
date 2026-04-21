@@ -56,7 +56,7 @@ function tateCycleLabel(cycleKey) {
   const prev = new Date(y, m - 2, 1);
   const prevY = prev.getFullYear();
   const prevM = prev.getMonth() + 1;
-  return `${prevY}/${prevM}/16 〜 ${y}/${m}/15`;
+  return `${prevY}/${prevM}/16 〜`;
 }
 
 const MEMO_OPTIONS = ["借りた","返した","ごはん","買い物","こづかい","借り繰り越し","今月借り","家計に移動"];
@@ -180,6 +180,9 @@ function App() {
   const [shokuMonths, setShokuMonths] = useState(() => load("shokuMonths", {}));
   const [openShokuMonth, setOpenShokuMonth] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [shokuEdit, setShokuEdit] = useState(null); // {ym, id, date, shokuhi} | null
+  const [tateKurikoshiConfirm, setTateKurikoshiConfirm] = useState(false);
+  const [tateCycleDeleteConfirm, setTateCycleDeleteConfirm] = useState(null); // ck | null
 
   const [tateDate, setTateDate] = useState(today());
   const [tateSide, setTateSide] = useState("貸し");
@@ -248,6 +251,13 @@ function App() {
   const deleteShokuRecord = (ym, id) => {
     setShokuMonths(prev => ({ ...prev, [ym]: { records: prev[ym].records.filter(r=>r.id!==id) } }));
     setDeleteConfirm(null);
+  };
+
+  const saveShokuEdit = () => {
+    if (!shokuEdit) return;
+    const { ym, id, shokuhi } = shokuEdit;
+    setShokuMonths(prev => ({ ...prev, [ym]: { records: prev[ym].records.map(r => r.id===id ? {...r, shokuhi:parseFloat(shokuhi)||0} : r) } }));
+    setShokuEdit(null);
   };
 
   const recordTate = () => {
@@ -444,7 +454,18 @@ function App() {
               <label style={labelStyle}>⓪ 日付</label>
               <MonthDayPicker value={shokuDate} onChange={setShokuDate} />
             </div>
-            {[{key:"shokuhi",label:"① 食費"},{key:"jibarai",label:"② 自腹"},{key:"shomohin",label:"③ 消耗品"}].map(({key,label}) => (
+            <div style={{ marginBottom:14 }}>
+              <label style={labelStyle}>④ 合計</label>
+              <div style={{ display:"flex", gap:8 }}>
+                <input type="number" value={shokuInputs.goukei} onChange={e=>setShokuInputs(p=>({...p,goukei:e.target.value}))} style={inputStyle} />
+                <button onClick={()=>setShokuInputs(p=>({...p,goukei:calcDisplay}))} style={{ background:C.surface, color:C.accent3, border:`1px solid ${C.accent3}`, borderRadius:10, padding:"0 14px", fontWeight:800, fontSize:14, cursor:"pointer", whiteSpace:"nowrap", flexShrink:0 }}>算</button>
+              </div>
+            </div>
+            <div style={{ marginBottom:20, display:"flex", gap:10 }}>
+              <button style={{ ...btnPrimary, width:"50%" }} onClick={calcShoku}>食費計算</button>
+              {shokuResult && <button style={{ ...btnPrimary, width:"50%" }} onClick={recordShoku}>記録する</button>}
+            </div>
+            {[{key:"shokuhi",label:"① 食費"},{key:"jibarai",label:"② 自腹"},{key:"shomohin",label:"③ その他"}].map(({key,label}) => (
               <div key={key} style={{ marginBottom:14 }}>
                 <label style={labelStyle}>{label}</label>
                 <div style={{ display:"flex", gap:8 }}>
@@ -456,23 +477,12 @@ function App() {
                 </div>
               </div>
             ))}
-            <div style={{ marginBottom:20 }}>
-              <label style={labelStyle}>④ 合計</label>
-              <div style={{ display:"flex", gap:8 }}>
-                <input type="number" value={shokuInputs.goukei} onChange={e=>setShokuInputs(p=>({...p,goukei:e.target.value}))} style={inputStyle} />
-                <button onClick={()=>setShokuInputs(p=>({...p,goukei:calcDisplay}))} style={{ background:C.surface, color:C.accent3, border:`1px solid ${C.accent3}`, borderRadius:10, padding:"0 14px", fontWeight:800, fontSize:14, cursor:"pointer", whiteSpace:"nowrap", flexShrink:0 }}>算</button>
-              </div>
-            </div>
-            <div style={{ marginBottom:20, display:"flex", flexDirection:"column", gap:10 }}>
-              <button style={btnPrimary} onClick={calcShoku}>食費計算</button>
-              {shokuResult && <button style={btnPrimary} onClick={recordShoku}>記録する</button>}
-            </div>
             {shokuResult && (
               <div style={{ background:C.card, borderRadius:16, padding:16, marginBottom:16 }}>
                 <div style={{ fontSize:13, fontWeight:800, color:C.accent, marginBottom:12 }}>計算結果</div>
                 {resultRow("① 食費", shokuResult.shokuhi)}
                 {resultRow("② 自腹", shokuResult.jibarai)}
-                {resultRow("③ 消耗品", shokuResult.shomohin)}
+                {resultRow("③ その他", shokuResult.shomohin)}
                 {resultRow("④ 合計", shokuResult.goukei, C.accent3)}
               </div>
             )}
@@ -504,22 +514,33 @@ function App() {
                   )}
                   {isOpen && (
                     <div style={{ borderTop:`1px solid ${C.border}` }}>
-                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 36px", padding:"8px 16px", background:C.surface }}>
-                        {["日付","食費","消耗品",""].map((h,i)=><span key={i} style={{ fontSize:11, color:i===1?C.accent:i===2?C.accent3:C.muted, fontWeight:700 }}>{h}</span>)}
+                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 28px", padding:"8px 16px", background:C.surface }}>
+                        {["日付","食費",""].map((h,i)=><span key={i} style={{ fontSize:11, color:i===1?C.accent:C.muted, fontWeight:700 }}>{h}</span>)}
                       </div>
                       {(shokuMonths[ym]?.records||[]).map(r => (
                         <div key={r.id} style={{ borderTop:`1px solid ${C.border}` }}>
-                          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 36px", padding:"10px 16px", alignItems:"center" }}>
-                            <span style={{ fontSize:13, color:C.text }}>{r.date.slice(5)}</span>
-                            <span style={{ fontSize:13, color:C.accent }}>¥{Math.round(r.shokuhi||0).toLocaleString()}</span>
-                            <span style={{ fontSize:13, color:C.accent3 }}>¥{Math.round(r.shomohin||0).toLocaleString()}</span>
-                            <button onClick={()=>setDeleteConfirm(deleteConfirm?.id===r.id?null:{ym,id:r.id})} style={{ background:"transparent", border:`1px solid ${C.accent2}`, borderRadius:6, color:C.accent2, cursor:"pointer", fontSize:14, width:28, height:28, display:"flex", alignItems:"center", justifyContent:"center", padding:0 }}>✕</button>
-                          </div>
+                          {shokuEdit?.id===r.id ? (
+                            <div style={{ padding:"10px 16px" }}>
+                              <div style={{ fontSize:11, color:C.muted, marginBottom:4 }}>食費</div>
+                              <input type="number" value={shokuEdit.shokuhi} onChange={e=>setShokuEdit(ev=>({...ev,shokuhi:e.target.value}))} style={{ ...inputStyle, marginBottom:8 }} />
+                              <div style={{ display:"flex", gap:8 }}>
+                                <button onClick={saveShokuEdit} style={{ flex:1, background:C.accent, color:C.bg, border:"none", borderRadius:8, padding:"8px 0", fontWeight:800, fontSize:13, cursor:"pointer" }}>保存</button>
+                                <button onClick={()=>setShokuEdit(null)} style={{ flex:1, background:C.surface, color:C.muted, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 0", fontWeight:700, fontSize:13, cursor:"pointer" }}>キャンセル</button>
+                                <button onClick={()=>{ setDeleteConfirm({ym,id:r.id}); setShokuEdit(null); }} style={{ background:"transparent", color:C.accent2, border:`1px solid ${C.accent2}`, borderRadius:8, padding:"8px 12px", fontWeight:700, fontSize:13, cursor:"pointer" }}>削除</button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 28px", padding:"10px 16px", alignItems:"center" }} onClick={()=>setShokuEdit({ym,id:r.id,shokuhi:r.shokuhi||0})}>
+                              <span style={{ fontSize:13, color:C.text }}>{r.date.slice(5)}</span>
+                              <span style={{ fontSize:13, color:C.accent }}>¥{Math.round(r.shokuhi||0).toLocaleString()}</span>
+                              <span style={{ fontSize:16, color:C.muted, textAlign:"center" }}>✏️</span>
+                            </div>
+                          )}
                           {deleteConfirm?.id===r.id && deleteConfirm?.ym===ym && (
                             <div style={{ display:"flex", gap:8, padding:"6px 16px 12px", alignItems:"center" }}>
-                              <span style={{ fontSize:12, color:C.accent2, flex:1 }}>この記録を削除しますか？</span>
-                              <button onClick={()=>deleteShokuRecord(ym,r.id)} style={{ background:C.accent2, color:"#fff", border:"none", borderRadius:8, padding:"6px 14px", fontWeight:700, fontSize:12, cursor:"pointer" }}>削除</button>
-                              <button onClick={()=>setDeleteConfirm(null)} style={{ background:C.surface, color:C.muted, border:`1px solid ${C.border}`, borderRadius:8, padding:"6px 14px", fontWeight:700, fontSize:12, cursor:"pointer" }}>キャンセル</button>
+                              <span style={{ fontSize:12, color:C.accent2, flex:1 }}>削除しますか？</span>
+                              <button onClick={()=>deleteShokuRecord(ym,r.id)} style={{ background:C.accent2, color:"#fff", border:"none", borderRadius:8, padding:"6px 14px", fontWeight:700, fontSize:12, cursor:"pointer" }}>はい</button>
+                              <button onClick={()=>setDeleteConfirm(null)} style={{ background:C.surface, color:C.muted, border:`1px solid ${C.border}`, borderRadius:8, padding:"6px 14px", fontWeight:700, fontSize:12, cursor:"pointer" }}>いいえ</button>
                             </div>
                           )}
                         </div>
@@ -568,10 +589,6 @@ function App() {
                 )}
               </div>
             </div>
-            <div style={{ background:C.surface, borderRadius:10, padding:"10px 14px", marginBottom:14 }}>
-              <span style={{ fontSize:12, color:C.muted }}>記録先サイクル：</span>
-              <span style={{ fontSize:13, color:C.accent3, fontWeight:700 }}> {tateCycleLabel(tateCycleKey(tateDate))}</span>
-            </div>
             <button style={btnPrimary} onClick={recordTate}>たてかえ記録</button>
           </div>
         )}
@@ -580,7 +597,15 @@ function App() {
         {tab==="たてかえ暦" && (
           <div>
             <SectionTitle>たてかえ暦</SectionTitle>
-            <button onClick={tateKurikoshi} style={{ ...btnSecondary, marginBottom:16 }}>たてかえ繰り越し（翌サイクルへ）</button>
+            {tateKurikoshiConfirm ? (
+              <div style={{ background:C.card, borderRadius:12, padding:14, marginBottom:16, display:"flex", alignItems:"center", gap:8 }}>
+                <span style={{ fontSize:13, color:C.accent2, flex:1 }}>繰り越しますか？</span>
+                <button onClick={()=>{ tateKurikoshi(); setTateKurikoshiConfirm(false); }} style={{ background:C.accent, color:C.bg, border:"none", borderRadius:8, padding:"8px 16px", fontWeight:800, fontSize:13, cursor:"pointer" }}>はい</button>
+                <button onClick={()=>setTateKurikoshiConfirm(false)} style={{ background:C.surface, color:C.muted, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 16px", fontWeight:700, fontSize:13, cursor:"pointer" }}>いいえ</button>
+              </div>
+            ) : (
+              <button onClick={()=>setTateKurikoshiConfirm(true)} style={{ ...btnSecondary, marginBottom:16 }}>たてかえ繰り越し（翌サイクルへ）</button>
+            )}
             {Object.keys(tateCycles).length===0 && <EmptyState>記録がありません</EmptyState>}
             {Object.keys(tateCycles).sort((a,b)=>b.localeCompare(a)).map(ck => {
               const tot=tateTotals(ck); const isOpen=openTateCycle===ck; const balance=tot.kashi-tot.kari;
@@ -592,9 +617,17 @@ function App() {
                       <span style={{ fontSize:11, color:C.accent }}>貸 ¥{tot.kashi.toLocaleString()}</span>
                       <span style={{ fontSize:11, color:C.accent2 }}>借 ¥{tot.kari.toLocaleString()}</span>
                       <span style={{ fontSize:11, color:balance>=0?C.accent3:C.accent2, fontWeight:800 }}>差{balance>=0?"+":""}{balance.toLocaleString()}</span>
+                      <button onClick={e=>{ e.stopPropagation(); setTateCycleDeleteConfirm(ck); }} style={{ background:"transparent", border:`1px solid ${C.accent2}`, borderRadius:6, color:C.accent2, cursor:"pointer", fontSize:12, padding:"2px 8px", fontWeight:700 }}>削除</button>
                       <span style={{ color:C.muted, fontSize:16 }}>{isOpen?"▲":"▼"}</span>
                     </div>
                   </button>
+                  {tateCycleDeleteConfirm===ck && (
+                    <div style={{ display:"flex", gap:8, padding:"6px 16px 12px", alignItems:"center", borderTop:`1px solid ${C.border}` }}>
+                      <span style={{ fontSize:12, color:C.accent2, flex:1 }}>削除しますか？</span>
+                      <button onClick={()=>{ setTateCycles(prev=>{ const n={...prev}; delete n[ck]; return n; }); setTateCycleDeleteConfirm(null); setOpenTateCycle(null); }} style={{ background:C.accent2, color:"#fff", border:"none", borderRadius:8, padding:"6px 14px", fontWeight:700, fontSize:12, cursor:"pointer" }}>はい</button>
+                      <button onClick={()=>setTateCycleDeleteConfirm(null)} style={{ background:C.surface, color:C.muted, border:`1px solid ${C.border}`, borderRadius:8, padding:"6px 14px", fontWeight:700, fontSize:12, cursor:"pointer" }}>いいえ</button>
+                    </div>
+                  )}
                   {isOpen && (
                     <div style={{ borderTop:`1px solid ${C.border}` }}>
                       <div style={{ display:"grid", gridTemplateColumns:"52px 44px 1fr 70px 28px", padding:"8px 16px", background:C.surface }}>
