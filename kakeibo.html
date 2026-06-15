@@ -805,19 +805,16 @@ function App() {
                 </div>
               ))}
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
-                <button onClick={()=>setKozeni(parseFloat(calcDisplay)||0)} style={{ height:68, borderRadius:16, border:"none", cursor:"pointer", fontSize:18, fontWeight:800, background: kozeni!==null?"#1A3A2A":"#22363A", color:"#68D391", boxShadow:"0 2px 8px rgba(0,0,0,0.3)" }}>
+                <button onClick={()=>{ setKozeni(parseFloat(calcDisplay)||0); setCalcDisplay("0"); }} style={{ height:68, borderRadius:16, border:"none", cursor:"pointer", fontSize:18, fontWeight:800, background: kozeni!==null?"#1A3A2A":"#22363A", color:"#68D391", boxShadow:"0 2px 8px rgba(0,0,0,0.3)" }}>
                   小銭{kozeni!==null?` ${kozeni}`:""}
                 </button>
-                <button onClick={()=>setKaikei(parseFloat(calcDisplay)||0)} style={{ height:68, borderRadius:16, border:"none", cursor:"pointer", fontSize:18, fontWeight:800, background: kaikei!==null?"#3A2A1A":"#3A3022", color:C.accent3, boxShadow:"0 2px 8px rgba(0,0,0,0.3)" }}>
+                <button onClick={()=>{ const k=parseFloat(calcDisplay)||0; setKaikei(k); setCalcDisplay(kozeni!==null?`P${((k-kozeni)%100)}`:"0"); }} style={{ height:68, borderRadius:16, border:"none", cursor:"pointer", fontSize:18, fontWeight:800, background: kaikei!==null?"#3A2A1A":"#3A3022", color:C.accent3, boxShadow:"0 2px 8px rgba(0,0,0,0.3)" }}>
                   会計{kaikei!==null?` ${kaikei}`:""}
                 </button>
               </div>
               {kozeni!==null && kaikei!==null && (
-                <div style={{ background:C.surface, borderRadius:14, padding:"14px 20px", textAlign:"center" }}>
-                  <span style={{ fontSize:28, fontWeight:900, color:C.accent2, letterSpacing:"0.05em" }}>
-                    P{((kaikei - kozeni) % 100).toLocaleString()}
-                  </span>
-                  <button onClick={()=>{ setKozeni(null); setKaikei(null); }} style={{ display:"block", margin:"10px auto 0", background:"transparent", border:`1px solid ${C.border}`, borderRadius:8, padding:"4px 16px", color:C.muted, fontSize:12, cursor:"pointer" }}>リセット</button>
+                <div style={{ textAlign:"center" }}>
+                  <button onClick={()=>{ setKozeni(null); setKaikei(null); setCalcDisplay("0"); }} style={{ background:"transparent", border:`1px solid ${C.border}`, borderRadius:8, padding:"4px 16px", color:C.muted, fontSize:12, cursor:"pointer" }}>リセット</button>
                 </div>
               )}
             </div>
