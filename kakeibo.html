@@ -327,18 +327,6 @@ function App() {
           memo: "今月借り",
         });
       }
-
-      // ③ 振込暦の家計補充金額 → 家計に移動（貸し）
-      const hoz = parseInt(latestFurikomi.hozyuu) || 0;
-      if (hoz !== 0) {
-        newRecords.push({
-          id: baseId + 2,
-          date: nextDate16,
-          side: "貸し",
-          amount: hoz * 10000,
-          memo: "家計に移動",
-        });
-      }
     }
 
     // 翌サイクルに記録追加
