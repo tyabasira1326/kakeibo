@@ -7,9 +7,9 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="家計管理" />
   <title>家計管理</title>
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.25.6/babel.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #0F1117; font-family: 'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif; }
@@ -20,8 +20,16 @@
   </style>
 </head>
 <body>
-<div id="root"></div>
-<script type="text/babel">
+<div id="root">読み込み中...</div>
+<script>
+  window.onerror = function(msg, url, line, col, error) {
+    document.getElementById('root').innerHTML =
+      '<div style="color:#fff;background:#0F1117;padding:20px;font-family:sans-serif;white-space:pre-wrap;">' +
+      'エラーが発生しました:\n' + msg + '\n行: ' + line + '\n' +
+      (error && error.stack ? error.stack : '') + '</div>';
+  };
+</script>
+<script type="text/babel" data-presets="react">
 const { useState, useEffect, useRef } = React;
 
 function load(key, def) {
