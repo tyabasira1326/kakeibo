@@ -258,6 +258,16 @@ function App() {
     setShokuResult(null);
   };
 
+  const recordShokuTate = () => {
+    if (!shokuResult) return;
+    const ym = shokuDate.slice(0,7);
+    setShokuMonths(prev => ({ ...prev, [ym]: { records: [{ id:Date.now(), date:shokuDate, shokuhi:shokuResult.shokuhi, shomohin:shokuResult.shomohin }, ...(prev[ym]?.records||[])] } }));
+    const ck = tateCycleKey(shokuDate);
+    setTateCycles(prev => ({ ...prev, [ck]: { records: [{ id:Date.now()+1, date:shokuDate, side:"貸し", amount:Math.round(shokuResult.goukei), memo:"ごはん" }, ...(prev[ck]?.records||[])] } }));
+    setShokuInputs({ shokuhi:"", jibarai:"", shomohin:"", goukei:"" });
+    setShokuResult(null);
+  };
+
   const deleteShokuRecord = (ym, id) => {
     setShokuMonths(prev => ({ ...prev, [ym]: { records: prev[ym].records.filter(r=>r.id!==id) } }));
     setDeleteConfirm(null);
@@ -290,16 +300,18 @@ function App() {
   };
 
   const tateKurikoshi = () => {
-    // 現在の最新サイクルキーを取得
+    // 現在の最新サイクルキーを取得（このサイクルの「差」を確定し、繰り越す）
     const cks = Object.keys(tateCycles).sort((a,b)=>b.localeCompare(a));
     if (cks.length === 0) return;
-    const currentCk = cks[0];
+    const currentCk = cks[0]; // 例: "2025-07" = 6/16〜7/15
 
-    // 翌サイクルキー（現在のckの翌月）
+    // 繰り越し先サイクルキー = currentCkの翌月（例: "2025-08" = 7/16〜8/15）
     const [y, m] = currentCk.split("-").map(Number);
-    const nextDate = new Date(y, m, 1); // 翌月1日
-    const nextCk = `${nextDate.getFullYear()}-${String(nextDate.getMonth()+1).padStart(2,"0")}`;
-    const nextDate16 = `${nextDate.getFullYear()}-${String(nextDate.getMonth()+1).padStart(2,"0")}-16`;
+    const nextDateObj = new Date(y, m, 1); // currentCkの翌月1日
+    const nextCk = `${nextDateObj.getFullYear()}-${String(nextDateObj.getMonth()+1).padStart(2,"0")}`;
+
+    // 繰り越し日 = currentCk月の16日（= 新サイクルの開始日）
+    const nextDate16 = `${y}-${String(m).padStart(2,"0")}-16`;
 
     // 現サイクルの差（貸し合計 − 借り合計）
     const tot = tateTotals(currentCk);
@@ -460,8 +472,9 @@ function App() {
               </div>
             </div>
             <div style={{ marginBottom:20, display:"flex", gap:10 }}>
-              <button style={{ ...btnPrimary, width:"50%" }} onClick={calcShoku}>食費計算</button>
-              {shokuResult && <button style={{ ...btnPrimary, width:"50%" }} onClick={recordShoku}>記録する</button>}
+              <button style={{ ...btnPrimary, width:"33%" }} onClick={calcShoku}>食費計算</button>
+              {shokuResult && <button style={{ ...btnPrimary, width:"33%", background:"#2E3A5C", color:C.accent3 }} onClick={recordShokuTate}>たてかえ</button>}
+              {shokuResult && <button style={{ ...btnPrimary, width:"33%" }} onClick={recordShoku}>記録する</button>}
             </div>
             {[{key:"shokuhi",label:"① 食費"},{key:"jibarai",label:"② 自腹"},{key:"shomohin",label:"③ その他"}].map(({key,label}) => (
               <div key={key} style={{ marginBottom:14 }}>
